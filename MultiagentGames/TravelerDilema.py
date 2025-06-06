@@ -1,5 +1,6 @@
 from typing import Callable, Tuple
 import random
+import statistics
 
 class SimpleGame:
     def __init__(self, real_value: int, penalidad: int):
@@ -35,28 +36,42 @@ class Player:
             return self.policy(None, penalty)
         
 
-def estrategia_deterministica(valor_real, penalidad):
-    return valor_real
+class Simulacion:
+    def __init__(self, juego: SimpleGame, jugador1: Player, jugador2: Player, n_simulaciones: int):
+        self.juego = juego
+        self.jugador1 = jugador1
+        self.jugador2 = jugador2
+        self.n = n_simulaciones
 
-# Estrategia aleatoria entre 0 y 10
-def estrategia_estocastica(_, penalidad):
-    return random.randint(0, 10)
+    def simular(self):
+        decisiones = []
 
-# Crear políticas
-det_policy = Policy(estrategia_deterministica)
-rand_policy = Policy(estrategia_estocastica)
+        for _ in range(self.n):
+            v1 = self.jugador1.decide(self.juego.real_value, self.juego.penalidad)
+            v2 = self.jugador2.decide(self.juego.real_value, self.juego.penalidad)
+            decisiones.append(v1)
+            decisiones.append(v2)
 
-# Crear jugadores
-jugador1 = Player(det_policy, knows_value=True)
-jugador2 = Player(rand_policy, knows_value=False)
+        resumen = {
+            "media": statistics.mean(decisiones),
+            "mediana": statistics.median(decisiones),
+            "desviacion": statistics.stdev(decisiones) if len(decisiones) > 1 else 0.0
+        }
 
-# Crear juego
-juego = SimpleGame(real_value=7, penalidad=2)
+        return resumen
+    
 
-# Simular decisión y recompensa
-v1 = jugador1.decide(juego.real_value, juego.penalidad)
-v2 = jugador2.decide(juego.real_value, juego.penalidad)
-r1, r2 = juego.reward(v1, v2)
+def estrategia1(valor_real, penalidad):
+    return random.randint(60,90)
 
-print(f"Jugador1 eligió {v1}, recompensa: {r1}")
-print(f"Jugador2 eligió {v2}, recompensa: {r2}")
+def estrategia2(valor_real, penalidad):
+    return random.randint(70, 80)
+
+jugador1 = Player(estrategia1, False)
+jugador2 = Player(estrategia2, False)
+
+juego = SimpleGame(70, 5)
+
+simulacion = Simulacion(juego, jugador1, jugador2, 100)
+
+print(simulacion.simular())

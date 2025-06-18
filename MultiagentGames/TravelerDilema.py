@@ -46,17 +46,27 @@ class Simulacion:
 
     def simular(self):
         decisiones = []
+        victorias1 = 0
+        victorias2 = 0
+        empates = 0
 
         for _ in range(self.n):
             v1 = self.jugador1.decide(self.juego.real_value, self.juego.penalidad)
             v2 = self.jugador2.decide(self.juego.real_value, self.juego.penalidad)
             decisiones.append(v1)
             decisiones.append(v2)
+            if v1 == v2:
+                empates += 1
+            elif v1 < v2:
+                victorias1 += 1
+            else:
+                victorias2 += 1
 
         resumen = {
             "media": statistics.mean(decisiones),
             "mediana": statistics.median(decisiones),
-            "desviacion": statistics.stdev(decisiones) if len(decisiones) > 1 else 0.0
+            "desviacion": statistics.stdev(decisiones) if len(decisiones) > 1 else 0.0,
+            "resultados": f"V1: {victorias1}, V2: {victorias2}, empates: {empates}"
         }
 
         return resumen
@@ -95,20 +105,202 @@ def best_response_stochastic_strategy(game: SimpleGame, opponent_policy: Policy,
 
     return strategy
 
+# def hierarchical_softmax(game, lambda_: float, k: int, jugador: int = 0):
+#     acciones = list(range(2, 100))  # Dominio de acciones
+#     n = 2  # Suponiendo un juego de 2 jugadores
+
+#     # Inicializamos políticas uniformes
+#     pi = []
+#     for _ in range(n):
+#         probs = [1 / len(acciones)] * len(acciones)
+#         pi.append(dict(zip(acciones, probs)))
+
+#     # Iteramos k niveles de razonamiento
+#     for _ in range(k):
+#         new_pi = []
+#         for i in range(n):
+#             otro = 1 - i
+#             recompensas_esperadas = []
+#             for ai in acciones:
+#                 esperada = 0.0
+#                 for aj, prob_aj in pi[otro].items():
+#                     r1, r2 = game.reward(ai, aj)
+#                     ri = r1 if i == 0 else r2
+#                     esperada += prob_aj * ri
+#                 recompensas_esperadas.append(esperada)
+
+#             probs = softmax(recompensas_esperadas, lambda_)
+#             new_pi.append(dict(zip(acciones, probs)))
+#         pi = new_pi
+
+#     # Devolvemos una estrategia que elige según la política resultante del jugador pedido
+#     final_policy = pi[jugador]
+
+#     def strategy(real_value=None, penalty=None):
+#         valores = list(final_policy.keys())
+#         pesos = list(final_policy.values())
+#         return random.choices(valores, weights=pesos, k=1)[0]
+
+#     return strategy
+
+import math
+import random
+
+
+def build_opponent_policy(game, lambda_, level, acciones):
+    """
+    Calcula recursivamente la política de un oponente de nivel `level`.
+    """
+    if level == 0:
+        # Política completamente aleatoria
+        prob = 1 / len(acciones)
+        return {a: prob for a in acciones}
+
+    # Política del oponente suponiendo que su oponente es de nivel (level - 1)
+    lower_policy = build_opponent_policy(game, lambda_, level - 1, acciones)
+
+    expected_rewards = []
+    for ai in acciones:
+        expected = 0.0
+        for aj, prob_aj in lower_policy.items():
+            r1, r2 = game.reward(ai, aj)
+            expected += prob_aj * r2  # r2 porque es el oponente (jugador 1)
+        expected_rewards.append(expected)
+
+    probs = softmax(expected_rewards, lambda_)
+    return dict(zip(acciones, probs))
+
+def hierarchical_softmax_strategy_single(game, lambda_, k, jugador=0):
+    """
+    Devuelve una estrategia de un solo jugador de nivel `k`, suponiendo que
+    el oponente juega una política de nivel `k-1`.
+    """
+    acciones = list(range(2, 100))
+
+    # Construir política del oponente de nivel k-1
+    opponent_policy = build_opponent_policy(game, lambda_, k - 1, acciones)
+
+    # Calcular recompensa esperada contra esa política
+    expected_rewards = []
+    for ai in acciones:
+        total = 0.0
+        for aj, prob_aj in opponent_policy.items():
+            r1, r2 = game.reward(ai, aj)
+            total += prob_aj * (r1 if jugador == 0 else r2)
+        expected_rewards.append(total)
+
+    probs = softmax(expected_rewards, lambda_)
+    final_policy = dict(zip(acciones, probs))
+
+    def strategy(real_value=None, penalty=None):
+        valores = list(final_policy.keys())
+        pesos = list(final_policy.values())
+        return random.choices(valores, weights=pesos, k=1)[0]
+
+    return strategy
+
+
+# br_stoch_policy = Policy(best_response_stochastic_strategy(juego1, rand_policy, real_value_known=False, temperatura=50))
+
 def estrategia1(valor_real, penalidad):
     return random.randint(85,100)
 
 # Juego
-juego = SimpleGame(real_value=80, penalidad=10)
+juego1 = SimpleGame(real_value=70, penalidad=5)
 
 # Políticas
 rand_policy = Policy(estrategia1)  # Oponente
-br_stoch_policy = Policy(best_response_stochastic_strategy(juego, rand_policy, knows_opponent=False))
-
+h_softmax_policy = Policy(hierarchical_softmax_strategy_single(juego1, lambda_=35, k=3))
 # Jugadores
-jugador1 = Player(br_stoch_policy, knows_value=True)
+jugador1 = Player(h_softmax_policy, knows_value=False)
 jugador2 = Player(rand_policy, knows_value=False)
 
 # Simulación
-sim = Simulacion(juego, jugador1, jugador2, n_simulaciones=1000)
+sim = Simulacion(juego1, jugador1, jugador2, n_simulaciones=1000)
+print(sim.simular())
+
+# Juego
+juego2 = SimpleGame(real_value=70, penalidad=35)
+
+def estrategia2(valor_real, penalidad):
+    return random.randint(10,52)
+
+# Políticas
+rand_policy = Policy(estrategia2)  # Oponente
+h_softmax_policy = Policy(hierarchical_softmax_strategy_single(juego2, lambda_=900, k=10))
+# Jugadores
+jugador1 = Player(h_softmax_policy, knows_value=False)
+jugador2 = Player(rand_policy, knows_value=False)
+
+# Simulación
+sim = Simulacion(juego2, jugador1, jugador2, n_simulaciones=1000)
+print(sim.simular())
+
+# Juego
+juego3 = SimpleGame(real_value=70, penalidad=5)
+
+def estrategia3(valor_real, penalidad):
+    return 70
+
+# Políticas
+honest_policy = Policy(estrategia3)  # Oponente
+h_softmax_policy = Policy(hierarchical_softmax_strategy_single(juego3, lambda_=19, k=10))
+# Jugadores
+jugador1 = Player(h_softmax_policy, knows_value=True)
+jugador2 = Player(honest_policy, knows_value=True)
+
+# Simulación
+sim = Simulacion(juego3, jugador1, jugador2, n_simulaciones=1000)
+print(sim.simular())
+
+# Juego
+juego4 = SimpleGame(real_value=70, penalidad=35)
+
+def estrategia4(valor_real, penalidad):
+    return random.randint(20,45)
+
+# Políticas
+afraid_policy = Policy(estrategia4)  # Oponente
+h_softmax_policy = Policy(hierarchical_softmax_strategy_single(juego4, lambda_=30, k=6))
+# Jugadores
+jugador1 = Player(h_softmax_policy, knows_value=True)
+jugador2 = Player(afraid_policy, knows_value=True)
+
+# Simulación
+sim = Simulacion(juego4, jugador1, jugador2, n_simulaciones=1000)
+print(sim.simular())
+
+
+# Juego
+juego5 = SimpleGame(real_value=70, penalidad=0)
+
+def estrategia5(valor_real, penalidad):
+    return 100
+
+# Políticas
+exploit_policy = Policy(estrategia5)  # Oponente
+h_softmax_policy = Policy(hierarchical_softmax_strategy_single(juego5, lambda_=14, k=6))
+# Jugadores
+jugador1 = Player(h_softmax_policy, knows_value=True)
+jugador2 = Player(exploit_policy, knows_value=True)
+
+# Simulación
+sim = Simulacion(juego5, jugador1, jugador2, n_simulaciones=1000)
+print(sim.simular())
+
+# Juego
+juego6 = SimpleGame(real_value=20, penalidad=0)
+
+def estrategia6(valor_real, penalidad):
+    return 100
+
+# Políticas
+exploit_policy = Policy(estrategia5)  # Oponente
+h_softmax_policy = Policy(hierarchical_softmax_strategy_single(juego5, lambda_=1000000, k=50))
+# Jugadores
+jugador1 = Player(h_softmax_policy, knows_value=True)
+jugador2 = Player(exploit_policy, knows_value=True)
+
+# Simulación
+sim = Simulacion(juego6, jugador1, jugador2, n_simulaciones=1000)
 print(sim.simular())
